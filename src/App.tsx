@@ -29,12 +29,24 @@ interface Entity {
 }
 
 const SAMPLE_PROTEIN = 'MSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTFSYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITHGMDELYK';
+const SAMPLE_DNA = 'ATGCGTACGTAGCTAG';
+const SAMPLE_RNA = 'AUGCGUACGUAGCUAG';
+const SAMPLE_LIGAND = 'NC1=NC=NC2=C1N=CN2[C@@H]3O[C@H](COP(=O)(O)OP(=O)(O)OP(=O)(O)O)[C@@H](O)[C@H]3O'; // ATP
+const SAMPLE_ION = 'MG';
+
+const INITIAL_ENTITIES: Entity[] = [
+  { id: '1', type: 'Protein', name: 'aqGFP (Sample)', sequence: SAMPLE_PROTEIN, count: 1 },
+  { id: '2', type: 'DNA', name: 'DNA Strand (Sample)', sequence: SAMPLE_DNA, count: 1 },
+  { id: '3', type: 'RNA', name: 'RNA Strand (Sample)', sequence: SAMPLE_RNA, count: 1 },
+  { id: '4', type: 'Ligand', name: 'ATP (Sample)', sequence: SAMPLE_LIGAND, count: 1 },
+  { id: '5', type: 'Ion', name: 'Magnesium (Sample)', sequence: SAMPLE_ION, count: 1 },
+];
 
 export default function App() {
   const [modelLoaded, setModelLoaded] = useState(false);
   const [loadingModel, setLoadingModel] = useState(false);
-  const [entities, setEntities] = useState<Entity[]>([]);
-  const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+  const [entities, setEntities] = useState<Entity[]>(INITIAL_ENTITIES);
+  const [selectedEntityId, setSelectedEntityId] = useState<string | null>(INITIAL_ENTITIES[0].id);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(0);
   const [resultReady, setResultReady] = useState(false);
@@ -66,15 +78,8 @@ export default function App() {
   };
 
   const handleLoadSample = () => {
-    const sampleEntity: Entity = {
-      id: Math.random().toString(36).substring(7),
-      type: 'Protein',
-      name: 'aqGFP (Sample)',
-      sequence: SAMPLE_PROTEIN,
-      count: 1,
-    };
-    setEntities([sampleEntity]);
-    setSelectedEntityId(sampleEntity.id);
+    setEntities(INITIAL_ENTITIES);
+    setSelectedEntityId(INITIAL_ENTITIES[0].id);
   };
 
   const handleRunPrediction = () => {
@@ -117,7 +122,7 @@ export default function App() {
             <Hexagon size={18} />
           </div>
           <div>
-            <h1 className="font-semibold text-sm">OpenFold 3 MLX</h1>
+            <h1 className="font-semibold text-sm">MLX Fold Studio</h1>
             <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Apple Silicon Native</p>
           </div>
         </div>
@@ -161,7 +166,7 @@ export default function App() {
                 onClick={handleLoadSample}
                 className="text-[10px] px-2 py-1 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100 font-medium transition-colors"
               >
-                Load Sample
+                Reset Examples
               </button>
             </div>
           </div>

@@ -1,5 +1,5 @@
 {
-  "name": "OpenFold 3 MLX Studio",
+  "name": "MLX Fold Studio",
   "description": "A Mac-native UI for OpenFold 3 MLX, allowing users to load the model locally and run biomolecular structure predictions on Apple Silicon.",
   "requestFramePermissions": []
 }
