@@ -1,7 +1,13 @@
 {
-  "name": "react-example",
+  "name": "mlx-fold-studio",
+  "version": "1.0.0",
+  "description": "High-performance molecular folding and 3D visualization studio optimized for Apple Silicon MLX.",
+  "author": "Arjun Subburaj",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/junainfinity/MLX-Fold-GUI.git"
+  },
   "private": true,
-  "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
