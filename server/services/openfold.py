@@ -8,6 +8,7 @@ import os
 import uuid
 import shutil
 import sys
+import signal
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
@@ -21,6 +22,7 @@ REPO_URL = "https://github.com/latent-spacecraft/openfold-3-mlx.git"
 
 # In-memory job tracking
 _jobs: dict[str, dict] = {}
+_processes: dict[str, asyncio.subprocess.Process] = {}
 
 
 def ensure_dirs():
@@ -355,6 +357,7 @@ async def _run_prediction_subprocess(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
+        _processes[job_id] = proc
 
         # Stream output and estimate progress
         line_count = 0
@@ -371,6 +374,10 @@ async def _run_prediction_subprocess(
                 job["progress"] = estimated
 
         await proc.wait()
+        
+        # Remove from process tracking
+        if job_id in _processes:
+            del _processes[job_id]
 
         if proc.returncode == 0:
             job["status"] = "complete"
@@ -382,12 +389,16 @@ async def _run_prediction_subprocess(
                 results = _find_result_files(JOBS_DIR / job_id)
             job["results"] = results
             await log(f"[JOB {job_id[:8]}] Prediction complete! Found {len(results)} output files.")
+        elif job["status"] == "stopped":
+             pass # Already handled by stop_job
         else:
             job["status"] = "error"
             job["error"] = f"Prediction failed with exit code {proc.returncode}"
             await log(f"[ERROR] Prediction failed with exit code {proc.returncode}")
 
     except Exception as e:
+        if job_id in _processes:
+            del _processes[job_id]
         job["status"] = "error"
         job["error"] = str(e)
         await log(f"[ERROR] {str(e)}")
@@ -429,6 +440,51 @@ def get_job(job_id: str) -> Optional[dict]:
             return job
 
     return None
+
+
+async def pause_job(job_id: str) -> bool:
+    """Pause a running job using SIGSTOP."""
+    job = get_job(job_id)
+    if not job or job["status"] != "running":
+        return False
+    
+    proc = _processes.get(job_id)
+    if proc:
+        proc.send_signal(signal.SIGSTOP)
+        job["status"] = "paused"
+        return True
+    return False
+
+
+async def resume_job(job_id: str) -> bool:
+    """Resume a paused job using SIGCONT."""
+    job = get_job(job_id)
+    if not job or job["status"] != "paused":
+        return False
+    
+    proc = _processes.get(job_id)
+    if proc:
+        proc.send_signal(signal.SIGCONT)
+        job["status"] = "running"
+        return True
+    return False
+
+
+async def stop_job(job_id: str) -> bool:
+    """Stop a job by terminating the subprocess."""
+    job = get_job(job_id)
+    if not job or job["status"] not in ["running", "paused"]:
+        return False
+    
+    proc = _processes.get(job_id)
+    if proc:
+        proc.terminate()
+        job["status"] = "stopped"
+        job["error"] = "Job stopped by user"
+        if job_id in _processes:
+            del _processes[job_id]
+        return True
+    return False
 
 
 def get_result_file_path(job_id: str, filename: str) -> Optional[Path]:

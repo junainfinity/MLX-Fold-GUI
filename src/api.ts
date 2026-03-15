@@ -51,7 +51,7 @@ export interface SetupResponse {
 
 export interface JobInfo {
   id: string;
-  status: 'running' | 'complete' | 'error';
+  status: 'running' | 'complete' | 'error' | 'paused' | 'stopped';
   progress: number;
   created_at: string;
   error: string | null;
@@ -118,6 +118,27 @@ export async function getJobStatus(jobId: string): Promise<JobInfo> {
 /** Get download URL for a result file */
 export function getResultDownloadUrl(jobId: string, filename: string): string {
   return `${API_BASE}/results/${jobId}/${filename}`;
+}
+
+/** Pause a running prediction job */
+export async function pauseJob(jobId: string): Promise<{ success: boolean; message: string }> {
+  const res = await fetch(`${API_BASE}/jobs/${jobId}/pause`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Pause failed: ${res.statusText}`);
+  return res.json();
+}
+
+/** Resume a paused prediction job */
+export async function resumeJob(jobId: string): Promise<{ success: boolean; message: string }> {
+  const res = await fetch(`${API_BASE}/jobs/${jobId}/resume`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Resume failed: ${res.statusText}`);
+  return res.json();
+}
+
+/** Stop a running or paused prediction job */
+export async function stopJob(jobId: string): Promise<{ success: boolean; message: string }> {
+  const res = await fetch(`${API_BASE}/jobs/${jobId}/stop`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Stop failed: ${res.statusText}`);
+  return res.json();
 }
 
 /** Health check */

@@ -21,7 +21,10 @@ import {
   PanelLeftOpen,
   ChevronDown,
   ChevronUp,
-  Terminal
+  Terminal,
+  Pause,
+  CircleStop,
+  RotateCw
 } from 'lucide-react';
 import {
   checkStatus,
@@ -31,6 +34,9 @@ import {
   getResultDownloadUrl,
   healthCheck,
   connectLogStream,
+  pauseJob,
+  resumeJob,
+  stopJob,
   type StatusResponse,
   type JobInfo,
 } from './api';
@@ -102,12 +108,15 @@ export default function App() {
   const [entities, setEntities] = useState<Entity[]>(INITIAL_ENTITIES);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(INITIAL_ENTITIES[0].id);
   const [running, setRunning] = useState(false);
+  const [paused, setPaused] = useState(false);
   const [progress, setProgress] = useState(0);
   const [resultReady, setResultReady] = useState(false);
   const [currentJob, setCurrentJob] = useState<JobInfo | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const logsContainerRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<number | null>(null);
+  const viewerRef = useRef<HTMLDivElement>(null);
+  const glRef = useRef<any>(null);
 
   const addLog = useCallback((msg: string) => {
     const timestamp = new Date().toLocaleTimeString();
@@ -185,7 +194,7 @@ export default function App() {
   // ─── Prediction ────────────────────────────────────
   const handleRunPrediction = async () => {
     if (!modelReady || entities.length === 0) return;
-    setRunning(true); setProgress(0); setResultReady(false); setCurrentJob(null);
+    setRunning(true); setPaused(false); setProgress(0); setResultReady(false); setCurrentJob(null);
     if (isMobile) { setEditorOpen(false); setLogsExpanded(true); }
     addLog('Submitting prediction job...');
     try {
@@ -193,18 +202,32 @@ export default function App() {
       result.logs.forEach(l => addLog(l));
       if (result.success && result.job_id) {
         addLog(`Job started: ${result.job_id.slice(0, 8)}...`);
+        // Set initial job state so Pause/Stop buttons can find the ID
+        setCurrentJob({
+          id: result.job_id,
+          status: 'running',
+          progress: 0,
+          created_at: new Date().toISOString(),
+          error: null,
+          results: null
+        });
+        
         pollRef.current = window.setInterval(async () => {
           try {
             const jobStatus = await getJobStatus(result.job_id!);
             setProgress(jobStatus.progress);
             if (jobStatus.status === 'complete') {
               clearInterval(pollRef.current!); pollRef.current = null;
-              setRunning(false); setResultReady(true); setCurrentJob(jobStatus);
+              setRunning(false); setPaused(false); setResultReady(true); setCurrentJob(jobStatus);
               addLog(`Prediction complete! ${jobStatus.results?.length || 0} output file(s).`);
               jobStatus.results?.forEach(r => addLog(`  → ${r.filename} (${(r.size_bytes / 1024).toFixed(1)}KB)`));
-            } else if (jobStatus.status === 'error') {
+            } else if (jobStatus.status === 'error' || jobStatus.status === 'stopped') {
               clearInterval(pollRef.current!); pollRef.current = null;
-              setRunning(false); addLog(`Prediction failed: ${jobStatus.error}`);
+              setRunning(false); setPaused(false); addLog(`Prediction ${jobStatus.status}: ${jobStatus.error || 'Stopped by user'}`);
+            } else if (jobStatus.status === 'paused') {
+              setPaused(true);
+            } else {
+              setPaused(false);
             }
           } catch { /* poll retry */ }
         }, 2000);
@@ -212,7 +235,80 @@ export default function App() {
     } catch (err: any) { setRunning(false); addLog(`Prediction error: ${err.message}`); }
   };
 
+  const handlePause = async () => {
+    if (!currentJob?.id && !running) return;
+    try {
+      // Find the last job ID if multiple starts happened
+      const jobId = currentJob?.id || logs.find(l => l.includes('Job started:'))?.split(': ')[1]?.split('...')[0];
+      // Note: Backend stores job_id mapping. If we don't have currentJob, we need to store it better.
+      // Let's assume setCurrentJob is updated on start or we keep the ID.
+      // Actually runPrediction returns job_id. Let's fix handleRunPrediction to set currentJob immediately.
+    } catch (err) {}
+  };
+
+  // Fixed handleRunPrediction to set currentJob immediately for control
+  const handlePauseJob = async () => {
+    if (!currentJob?.id) return;
+    try {
+      await pauseJob(currentJob.id);
+      setPaused(true);
+      addLog('Prediction paused.');
+    } catch (err: any) { addLog(`Pause failed: ${err.message}`); }
+  };
+
+  const handleResumeJob = async () => {
+    if (!currentJob?.id) return;
+    try {
+      await resumeJob(currentJob.id);
+      setPaused(false);
+      addLog('Prediction resumed.');
+    } catch (err: any) { addLog(`Resume failed: ${err.message}`); }
+  };
+
+  const handleStopJob = async () => {
+    if (!currentJob?.id) return;
+    try {
+      await stopJob(currentJob.id);
+      setRunning(false);
+      setPaused(false);
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+      addLog('Prediction stopped.');
+    } catch (err: any) { addLog(`Stop failed: ${err.message}`); }
+  };
+
   useEffect(() => { return () => { if (pollRef.current) clearInterval(pollRef.current); }; }, []);
+
+  // ─── 3D Viewer Logic ────────────────────────────────
+  useEffect(() => {
+    if (resultReady && currentJob?.results && viewerRef.current) {
+      const cifFile = currentJob.results.find(r => r.filename.endsWith('.cif'));
+      if (cifFile) {
+        // Initialize 3Dmol.js viewer
+        const viewerElement = viewerRef.current;
+        if (!glRef.current && (window as any).$3Dmol) {
+          glRef.current = (window as any).$3Dmol.createViewer(viewerElement, {
+            backgroundColor: 'transparent'
+          });
+        }
+
+        if (glRef.current) {
+          glRef.current.clear();
+          const url = getResultDownloadUrl(currentJob.id, cifFile.filename);
+          
+          fetch(url).then(res => res.text()).then(data => {
+            glRef.current.addModel(data, "cif");
+            glRef.current.setStyle({}, { cartoon: { color: 'spectrum' } });
+            glRef.current.zoomTo();
+            glRef.current.render();
+            // Enable mouse interactions for rotation/dragging
+            glRef.current.setClickable({}, true, (atom: any) => {
+               console.log("Atom clicked", atom);
+            });
+          });
+        }
+      }
+    }
+  }, [resultReady, currentJob, resultReady]);
 
   const selectedEntity = entities.find(e => e.id === selectedEntityId);
 
@@ -318,16 +414,39 @@ export default function App() {
         </div>
       </div>
 
-      {/* Run Button */}
+      {/* Run Button / Progress Control */}
       <div className="p-3 sm:p-4 border-t border-white/10 bg-white/5 backdrop-blur-xl shrink-0">
-        <button onClick={handleRunPrediction} disabled={!modelReady || entities.length === 0 || running}
-          className={`w-full py-2.5 sm:py-3 px-4 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-all shadow-lg ${
-            !modelReady || entities.length === 0 ? 'bg-white/5 text-white/30 border border-white/5 cursor-not-allowed'
-            : running ? 'bg-emerald-500/20 text-emerald-100 border border-emerald-500/30'
-            : 'bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-500 shadow-emerald-500/25'
-          }`}>
-          {running ? (<><div className="w-4 h-4 border-2 border-emerald-200/30 border-t-white rounded-full animate-spin" />Predicting... {progress}%</>) : (<><Play size={16} fill="currentColor" />Run Prediction</>)}
-        </button>
+        {running ? (
+          <div className="space-y-3">
+             <div className="flex items-center justify-between gap-2">
+                <button 
+                  onClick={paused ? handleResumeJob : handlePauseJob}
+                  className="flex-1 py-2 px-3 bg-white/10 hover:bg-white/20 border border-white/20 rounded-md text-xs font-medium text-white transition-all flex items-center justify-center gap-2"
+                >
+                  {paused ? <Play size={14} fill="currentColor" /> : <Pause size={14} fill="currentColor" />}
+                  {paused ? 'Resume' : 'Pause'}
+                </button>
+                <button 
+                  onClick={handleStopJob}
+                  className="flex-1 py-2 px-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-md text-xs font-medium text-red-400 transition-all flex items-center justify-center gap-2"
+                >
+                  <CircleStop size={14} /> Stop
+                </button>
+             </div>
+             <div className="w-full h-10 px-4 rounded-lg bg-emerald-500/20 text-emerald-100 border border-emerald-500/30 text-xs font-semibold flex items-center justify-center gap-2">
+                <div className="w-3 h-3 border-2 border-emerald-200/30 border-t-white rounded-full animate-spin" />
+                {paused ? 'Paused' : 'Predicting...'} {progress}%
+             </div>
+          </div>
+        ) : (
+          <button onClick={handleRunPrediction} disabled={!modelReady || entities.length === 0}
+            className={`w-full py-2.5 sm:py-3 px-4 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-all shadow-lg ${
+              !modelReady || entities.length === 0 ? 'bg-white/5 text-white/30 border border-white/5 cursor-not-allowed'
+              : 'bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-500 shadow-emerald-500/25'
+            }`}>
+            <Play size={16} fill="currentColor" /> Run Prediction
+          </button>
+        )}
         {(!modelReady || entities.length === 0) && !running && (
           <p className="text-[10px] text-center text-white/40 mt-2">{!backendConnected ? 'Start the backend server first' : !modelReady ? 'Install model first' : 'Add at least one entity'}</p>
         )}
@@ -487,37 +606,45 @@ export default function App() {
           </div>
 
           {/* Viewer canvas — takes all remaining space */}
-          <div className="flex-1 flex items-center justify-center relative min-h-0">
-            <div className="absolute inset-0" style={{ backgroundImage: 'radial-gradient(circle at center, rgba(255,255,255,0.05) 1px, transparent 1px)', backgroundSize: '24px 24px' }} />
+          <div className="flex-1 relative min-h-0 bg-black/40">
+            <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at center, rgba(255,255,255,0.05) 1px, transparent 1px)', backgroundSize: '24px 24px' }} />
+            
             {resultReady ? (
-              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="relative z-10">
-                <div className="w-40 h-40 sm:w-56 sm:h-56 lg:w-64 lg:h-64 relative animate-[spin_20s_linear_infinite]">
-                  <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-[0_0_20px_rgba(16,185,129,0.4)]">
-                    <path d="M20,50 Q40,10 60,50 T100,50" fill="none" stroke="url(#grad1)" strokeWidth="4" strokeLinecap="round" />
-                    <path d="M10,40 Q30,80 70,40 T90,60" fill="none" stroke="url(#grad2)" strokeWidth="3" strokeLinecap="round" opacity="0.8" />
-                    <path d="M30,30 Q50,90 80,30 T100,70" fill="none" stroke="url(#grad3)" strokeWidth="2" strokeLinecap="round" opacity="0.6" />
-                    <defs>
-                      <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#059669" /><stop offset="100%" stopColor="#34d399" /></linearGradient>
-                      <linearGradient id="grad2" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stopColor="#047857" /><stop offset="100%" stopColor="#6ee7b7" /></linearGradient>
-                      <linearGradient id="grad3" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stopColor="#064e3b" /><stop offset="100%" stopColor="#10b981" /></linearGradient>
-                    </defs>
-                  </svg>
+              <div key={currentJob?.id} className="w-full h-full relative">
+                <div ref={viewerRef} className="w-full h-full" />
+                <div className="absolute bottom-4 left-4 flex gap-2 z-30">
+                  <button onClick={() => glRef.current?.zoomTo()} className="p-2 bg-black/60 border border-white/10 rounded-md text-white/70 hover:text-white transition-all shadow-xl backdrop-blur-md" title="Reset View">
+                    <RotateCw size={14} />
+                  </button>
                 </div>
                 {currentJob?.results && currentJob.results.length > 0 && (
-                  <p className="text-center text-emerald-400 text-xs mt-3 font-medium">{currentJob.results.length} output file(s) ready</p>
+                  <div className="absolute top-4 right-4 bg-emerald-500/20 border border-emerald-500/40 px-3 py-1.5 rounded-full backdrop-blur-md pointer-events-none">
+                     <p className="text-emerald-400 text-[10px] font-bold uppercase tracking-widest">{currentJob.results.length} Structure Components Ready</p>
+                  </div>
                 )}
-              </motion.div>
+              </div>
             ) : running ? (
-              <div className="flex flex-col items-center z-10">
-                <div className="w-12 h-12 sm:w-16 sm:h-16 border-4 border-white/10 border-t-emerald-400 rounded-full animate-spin mb-3 sm:mb-4 shadow-[0_0_15px_rgba(16,185,129,0.3)]" />
-                <p className="text-white/80 text-xs sm:text-sm font-medium font-mono">Running MLX Kernels...</p>
-                <p className="text-white/50 text-xs mt-1 font-mono">Progress: {progress}%</p>
+              <div className="flex flex-col items-center justify-center w-full h-full z-10">
+                <div className="w-16 h-16 border-4 border-white/10 border-t-emerald-400 rounded-full animate-spin mb-4 shadow-[0_0_20px_rgba(16,185,129,0.3)]" />
+                <p className="text-white/80 text-sm font-semibold font-mono tracking-wider">{paused ? 'GENERATION PAUSED' : 'RUNNING MLX KERNELS...'}</p>
+                <div className="mt-4 w-48 h-1 bg-white/10 rounded-full overflow-hidden">
+                   <motion.div 
+                     initial={{ width: 0 }} 
+                     animate={{ width: `${progress}%` }} 
+                     className="h-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,1)]"
+                   />
+                </div>
+                <p className="text-white/40 text-[10px] mt-2 font-mono uppercase tracking-widest px-4 text-center leading-relaxed">
+                   Generating atomic coordinates and bond probabilities... {progress}%
+                </p>
               </div>
             ) : (
-              <div className="text-center z-10 px-4">
-                <Hexagon size={isMobile ? 36 : 48} className="text-white/10 mx-auto mb-3 sm:mb-4 drop-shadow-lg" />
-                <p className="text-white/40 text-xs sm:text-sm">3D Structure Viewer</p>
-                <p className="text-white/25 text-[10px] sm:text-xs mt-1">Run a prediction to see results</p>
+              <div className="flex flex-col items-center justify-center w-full h-full z-10 px-4">
+                <div className="w-20 h-20 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center text-white/10 mb-6 drop-shadow-2xl">
+                   <Hexagon size={48} strokeWidth={1} />
+                </div>
+                <h3 className="text-white/60 text-lg font-light tracking-tight">Interactive 3D Viewer</h3>
+                <p className="text-white/30 text-xs mt-2 max-w-[240px] text-center leading-relaxed">Configure your entities and run a prediction to visualize the 3D molecular structure.</p>
               </div>
             )}
           </div>
