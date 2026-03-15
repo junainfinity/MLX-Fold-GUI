@@ -1,8 +1,18 @@
 @import "tailwindcss";
 
+/* Force full-viewport coverage — no gaps, no scroll */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #000;
+}
+
 @theme {
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
   --font-mono: "SF Mono", "Menlo", "Monaco", "Courier New", monospace;
+  --breakpoint-xs: 480px;
 }
 
 /* Custom Scrollbar for Mac-like feel */
@@ -41,4 +51,42 @@
 
 .animation-delay-4000 {
   animation-delay: 4s;
+}
+
+/* Mobile overlay backdrop */
+.mobile-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 40;
+  transition: opacity 0.3s ease;
+}
+
+/* Slide-in panel for mobile */
+.slide-panel {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.slide-panel-left {
+  transform: translateX(-100%);
+}
+
+.slide-panel-left.open {
+  transform: translateX(0);
+}
+
+.slide-panel-right {
+  transform: translateX(100%);
+}
+
+.slide-panel-right.open {
+  transform: translateX(0);
+}
+
+/* Responsive logs panel height */
+@media (max-height: 700px) {
+  .logs-panel {
+    max-height: 120px;
+  }
 }
