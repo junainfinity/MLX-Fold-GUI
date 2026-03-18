@@ -20,7 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 echo -e "${BLUE}[1/3]${NC} Checking Python dependencies..."
 if ! pip3 show fastapi &> /dev/null; then
     echo "  Installing Python backend dependencies..."
-    pip3 install -r "$SCRIPT_DIR/server/requirements.txt"
+    pip3 install -r "$SCRIPT_DIR/requirements.txt"
 fi
 echo -e "  ${GREEN}✓${NC} Python dependencies ready"
 

@@ -18,10 +18,14 @@ export default defineConfig(({mode}) => {
     server: {
       hmr: process.env.DISABLE_HMR !== 'true',
       proxy: {
-        '/api': {
-          target: 'http://localhost:8000',
-          changeOrigin: true,
+        '/api/logs': {
+          target: 'http://127.0.0.1:8000',
           ws: true,
+          changeOrigin: true,
+        },
+        '/api': {
+          target: 'http://127.0.0.1:8000',
+          changeOrigin: true,
         },
       },
     },

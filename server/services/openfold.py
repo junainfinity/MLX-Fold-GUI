@@ -134,8 +134,21 @@ async def run_setup(log_callback=None) -> dict:
     download_script = REPO_DIR / "openfold3" / "scripts" / "download_openfold3_params.sh"
     
     if download_script.exists():
-        # Check for AWS CLI
+        # Check for AWS CLI (including common user installation paths)
         aws_cmd = shutil.which("aws")
+        if not aws_cmd:
+            # Try common user installation paths
+            user_aws_paths = [
+                Path.home() / "Library" / "Python" / "3.9" / "bin" / "aws",
+                Path.home() / "Library" / "Python" / "3.10" / "bin" / "aws",
+                Path.home() / ".local" / "bin" / "aws",
+            ]
+            for path in user_aws_paths:
+                if path.exists():
+                    aws_cmd = str(path)
+                    await log(f"[SETUP] Found AWS CLI at {aws_cmd}")
+                    break
+
         if not aws_cmd:
             await log("[SETUP] AWS CLI not found. Installing via pip...")
             pip_cmd = shutil.which("pip3") or shutil.which("pip") or "pip3"
@@ -145,12 +158,25 @@ async def run_setup(log_callback=None) -> dict:
                 stderr=asyncio.subprocess.PIPE,
             )
             await install_proc.communicate()
+            # Refresh search
             aws_cmd = shutil.which("aws")
+            if not aws_cmd:
+                # Try user paths again after install
+                for path in user_aws_paths:
+                    if path.exists():
+                        aws_cmd = str(path)
+                        break
             if not aws_cmd:
                 await log("[WARN] AWS CLI install may need PATH refresh. Trying anyway...")
 
         env = os.environ.copy()
         env["OPENFOLD_CACHE"] = str(openfold_cache)
+        # Add user Python bin to PATH so AWS CLI can be found
+        user_python_bin = str(Path.home() / "Library" / "Python" / "3.9" / "bin")
+        if "PATH" in env:
+            env["PATH"] = user_python_bin + ":" + env["PATH"]
+        else:
+            env["PATH"] = user_python_bin + ":/usr/bin:/bin:/usr/local/bin"
 
         proc = await asyncio.create_subprocess_exec(
             "bash", str(download_script), f"--download_dir={openfold_cache}",
@@ -159,12 +185,22 @@ async def run_setup(log_callback=None) -> dict:
             stderr=asyncio.subprocess.STDOUT,
             env=env,
         )
-        # Stream output
+        # Stream output - read in chunks to avoid buffer limit
+        buffer = b""
         while True:
-            line = await proc.stdout.readline()
-            if not line:
+            chunk = await proc.stdout.read(4096)
+            if not chunk:
                 break
-            decoded = line.decode().strip()
+            buffer += chunk
+            # Process complete lines
+            while b"\n" in buffer:
+                line, buffer = buffer.split(b"\n", 1)
+                decoded = line.decode().strip()
+                if decoded:
+                    await log(f"[WEIGHTS] {decoded}")
+        # Process any remaining output
+        if buffer:
+            decoded = buffer.decode().strip()
             if decoded:
                 await log(f"[WEIGHTS] {decoded}")
         await proc.wait()
@@ -176,18 +212,28 @@ async def run_setup(log_callback=None) -> dict:
         # Fallback: try aws s3 cp directly
         await log("[SETUP] Download script not found, attempting direct S3 download...")
         proc = await asyncio.create_subprocess_exec(
-            "aws", "s3", "cp",
+            aws_cmd or "aws", "s3", "cp",
             "s3://openfold/openfold3_params/of3_ft3_v1.pt",
             str(openfold_cache) + "/",
             "--no-sign-request",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
+            env=env,
         )
+        # Stream output - read in chunks
+        buffer = b""
         while True:
-            line = await proc.stdout.readline()
-            if not line:
+            chunk = await proc.stdout.read(4096)
+            if not chunk:
                 break
-            decoded = line.decode().strip()
+            buffer += chunk
+            while b"\n" in buffer:
+                line, buffer = buffer.split(b"\n", 1)
+                decoded = line.decode().strip()
+                if decoded:
+                    await log(f"[WEIGHTS] {decoded}")
+        if buffer:
+            decoded = buffer.decode().strip()
             if decoded:
                 await log(f"[WEIGHTS] {decoded}")
         await proc.wait()

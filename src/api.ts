@@ -185,3 +185,93 @@ export function connectLogStream(onLog: LogCallback): WebSocket {
 
   return ws;
 }
+
+// ─── NLI Chat Interface ─────────────────────────────
+
+export interface ChatEntity {
+  type: string;
+  name: string;
+  sequence: string;
+  count: number;
+  source: string;
+}
+
+export interface ChatResponse {
+  success: boolean;
+  data: {
+    intent: string;
+    entities: ChatEntity[];
+    summary: string;
+  };
+}
+
+export interface FormatResponse {
+  success: boolean;
+  query: Record<string, unknown>;
+}
+
+/** Send a natural language prompt to the LLM for parsing */
+export async function sendChatPrompt(prompt: string): Promise<ChatResponse> {
+  const res = await fetch(`${API_BASE}/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt }),
+  });
+  if (!res.ok) throw new Error(`Chat failed: ${res.statusText}`);
+  return res.json();
+}
+
+/** Ask the LLM to format entities for OpenFold3 */
+export async function formatForSimulation(entities: Entity[]): Promise<FormatResponse> {
+  const res = await fetch(`${API_BASE}/chat/format`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entities }),
+  });
+  if (!res.ok) throw new Error(`Format failed: ${res.statusText}`);
+  return res.json();
+}
+
+// ─── Sample Data Library ────────────────────────────
+
+export interface SampleTarget {
+  type: string;
+  name: string;
+  sequence: string;
+  description: string;
+}
+
+export interface SamplePerson {
+  id: string;
+  name: string;
+  description: string;
+  avatar: string;
+  targets: SampleTarget[];
+}
+
+export interface Medicine {
+  id: string;
+  name: string;
+  aliases: string[];
+  smiles: string;
+  description: string;
+  category: string;
+  icon: string;
+}
+
+/** Fetch all sample persons */
+export async function fetchSamplePersons(): Promise<SamplePerson[]> {
+  const res = await fetch(`${API_BASE}/samples/persons`);
+  if (!res.ok) throw new Error(`Fetch persons failed: ${res.statusText}`);
+  const data = await res.json();
+  return data.persons;
+}
+
+/** Fetch all common medicines */
+export async function fetchSampleMedicines(): Promise<Medicine[]> {
+  const res = await fetch(`${API_BASE}/samples/medicines`);
+  if (!res.ok) throw new Error(`Fetch medicines failed: ${res.statusText}`);
+  const data = await res.json();
+  return data.medicines;
+}
+

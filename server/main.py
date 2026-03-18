@@ -1,5 +1,5 @@
 """
-MLX Fold Studio — FastAPI Backend
+OHM Fold Studio — FastAPI Backend
 
 Wraps OpenFold3-MLX for protein/molecule structure prediction on Apple Silicon.
 """
@@ -14,9 +14,11 @@ from server.routes.status import router as status_router
 from server.routes.predict import router as predict_router
 from server.routes.jobs import router as jobs_router
 from server.routes.results import router as results_router
+from server.routes.chat import router as chat_router
+from server.routes.samples import router as samples_router
 
 app = FastAPI(
-    title="MLX Fold Studio API",
+    title="OHM Fold Studio API",
     description="Backend API for OpenFold3-MLX structure prediction on Apple Silicon",
     version="0.1.0",
 )
@@ -36,6 +38,8 @@ app.include_router(status_router)
 app.include_router(predict_router)
 app.include_router(jobs_router)
 app.include_router(results_router)
+app.include_router(chat_router)
+app.include_router(samples_router)
 
 
 # WebSocket endpoint for real-time log streaming
@@ -73,7 +77,7 @@ async def websocket_logs(websocket: WebSocket):
 @app.get("/api/health")
 async def health():
     """Health check endpoint."""
-    return {"status": "ok", "service": "mlx-fold-studio"}
+    return {"status": "ok", "service": "ohm-fold-studio"}
 
 
 if __name__ == "__main__":
